@@ -641,87 +641,13 @@ func (f *File) GetPicture(sheet, cell string) (string, []byte, error) {
 	newF.DeTwoCellAnchors = deTwoCellAnchors
 	return newF,err
 }*/
-//func (f *File) GetPictureMap(sheet string) (sheetPictureMaps map[string]SheetPictures, err error) {
-//	sheetPictureMaps = map[string]SheetPictures{}
-//
-//	var (
-//		wsDr             *xlsxWsDr
-//		deTwoCellAnchors []*decodeTwoCellAnchor
-//	)
-//	ws, err := f.workSheetReader(sheet)
-//	if err != nil {
-//		return map[string]SheetPictures{}, err
-//	}
-//	if ws.Drawing == nil {
-//		return map[string]SheetPictures{}, err
-//	}
-//	target := f.getSheetRelationshipsTargetByID(sheet, ws.Drawing.RID)
-//	drawingXML := strings.ReplaceAll(target, "..", "xl")
-//	drawingRelationships := strings.ReplaceAll(
-//		strings.ReplaceAll(target, "../drawings", "xl/drawings/_rels"), ".xml", ".xml.rels")
-//	if wsDr, _, err = f.drawingParser(drawingXML); err != nil {
-//		return map[string]SheetPictures{}, err
-//	}
-//
-//	deWsDr := new(decodeWsDr)
-//	if err = f.xmlNewDecoder(bytes.NewReader(namespaceStrictToTransitional(f.readXML(drawingXML)))).
-//		Decode(deWsDr); err != nil && err != io.EOF {
-//		return map[string]SheetPictures{}, err
-//	}
-//	for _, anchor := range deWsDr.TwoCellAnchor {
-//		deTwoCellAnchor := new(decodeTwoCellAnchor)
-//		if err = f.xmlNewDecoder(strings.NewReader("<decodeTwoCellAnchor>" + anchor.Content + "</decodeTwoCellAnchor>")).
-//			Decode(deTwoCellAnchor); err != nil && err != io.EOF {
-//			return map[string]SheetPictures{}, err
-//		}
-//		deTwoCellAnchors = append(deTwoCellAnchors, deTwoCellAnchor)
-//	}
-//
-//	//获取图片
-//	wsDr.Lock()
-//	defer wsDr.Unlock()
-//	for _, anchor := range wsDr.TwoCellAnchor {
-//		if anchor.From != nil && anchor.Pic != nil {
-//			if drawRel := f.getDrawingRelationships(drawingRelationships, anchor.Pic.BlipFill.Blip.Embed); drawRel != nil {
-//				if _, ok := supportedImageTypes[filepath.Ext(drawRel.Target)]; ok {
-//					ret := filepath.Base(drawRel.Target)
-//					cellObj, err := CoordinatesToCellName(anchor.From.Col+1, anchor.From.Row+1)
-//					if err != nil {
-//						return map[string]SheetPictures{}, err
-//					}
-//					sheetPictureMaps[cellObj] = SheetPictures{
-//						FileName: ret,
-//						Target:   strings.ReplaceAll(drawRel.Target, "..", "xl"),
-//					}
-//				}
-//			}
-//		}
-//	}
-//	err = nil
-//	//获取图片
-//	for _, deTwoCellAnchor := range deTwoCellAnchors {
-//		if err = nil; deTwoCellAnchor.From != nil && deTwoCellAnchor.Pic != nil {
-//			drawRel := f.getDrawingRelationships(drawingRelationships, deTwoCellAnchor.Pic.BlipFill.Blip.Embed)
-//			if _, ok := supportedImageTypes[filepath.Ext(drawRel.Target)]; ok {
-//				ret := filepath.Base(drawRel.Target)
-//				cellObj, err := CoordinatesToCellName(deTwoCellAnchor.From.Col+1, deTwoCellAnchor.From.Row+1)
-//				if err != nil {
-//					return map[string]SheetPictures{}, err
-//				}
-//				sheetPictureMaps[cellObj] = SheetPictures{
-//					FileName: ret,
-//					Target:   strings.ReplaceAll(drawRel.Target, "..", "xl"),
-//				}
-//			}
-//		}
-//	}
-//	return sheetPictureMaps, nil
-//}
+
 func (f *File) GetPictureMap(sheet string) (sheetPictureMaps map[string]SheetPictures, err error) {
 	sheetPictureMaps = map[string]SheetPictures{}
 
 	var (
-		wsDr *xlsxWsDr
+		wsDr             *xlsxWsDr
+		deTwoCellAnchors []*decodeTwoCellAnchor
 	)
 	ws, err := f.workSheetReader(sheet)
 	if err != nil {
@@ -734,51 +660,30 @@ func (f *File) GetPictureMap(sheet string) (sheetPictureMaps map[string]SheetPic
 	drawingXML := strings.ReplaceAll(target, "..", "xl")
 	drawingRelationships := strings.ReplaceAll(
 		strings.ReplaceAll(target, "../drawings", "xl/drawings/_rels"), ".xml", ".xml.rels")
+	if wsDr, _, err = f.drawingParser(drawingXML); err != nil {
+		return map[string]SheetPictures{}, err
+	}
 
-	// 先获取图片和存储位置的map
-	drawRels := f.getDrawingRelationshipsMap(drawingRelationships)
-	// 第一种方式
 	deWsDr := new(decodeWsDr)
 	if err = f.xmlNewDecoder(bytes.NewReader(namespaceStrictToTransitional(f.readXML(drawingXML)))).
 		Decode(deWsDr); err != nil && err != io.EOF {
 		return map[string]SheetPictures{}, err
 	}
-
 	for _, anchor := range deWsDr.TwoCellAnchor {
 		deTwoCellAnchor := new(decodeTwoCellAnchor)
 		if err = f.xmlNewDecoder(strings.NewReader("<decodeTwoCellAnchor>" + anchor.Content + "</decodeTwoCellAnchor>")).
 			Decode(deTwoCellAnchor); err != nil && err != io.EOF {
 			return map[string]SheetPictures{}, err
 		}
-		if err = nil; deTwoCellAnchor.From != nil && deTwoCellAnchor.Pic != nil {
-			if drawRel, ok := drawRels[deTwoCellAnchor.Pic.BlipFill.Blip.Embed]; ok && drawRel != nil {
-				if _, ok := supportedImageTypes[filepath.Ext(drawRel.Target)]; ok {
-					ret := filepath.Base(drawRel.Target)
-					cellObj, err := CoordinatesToCellName(deTwoCellAnchor.From.Col+1, deTwoCellAnchor.From.Row+1)
-					if err != nil {
-						return map[string]SheetPictures{}, err
-					}
-					sheetPictureMaps[cellObj] = SheetPictures{
-						FileName: ret,
-						Target:   strings.ReplaceAll(drawRel.Target, "..", "xl"),
-					}
-				}
-			}
-		}
+		deTwoCellAnchors = append(deTwoCellAnchors, deTwoCellAnchor)
 	}
-	if len(sheetPictureMaps) > 0 {
-		return sheetPictureMaps, nil
-	}
-	// 第二种方式
-	if wsDr, _, err = f.drawingParser(drawingXML); err != nil {
-		return map[string]SheetPictures{}, err
-	}
+
 	//获取图片
 	wsDr.Lock()
 	defer wsDr.Unlock()
 	for _, anchor := range wsDr.TwoCellAnchor {
 		if anchor.From != nil && anchor.Pic != nil {
-			if drawRel, ok := drawRels[anchor.Pic.BlipFill.Blip.Embed]; ok && drawRel != nil {
+			if drawRel := f.getDrawingRelationships(drawingRelationships, anchor.Pic.BlipFill.Blip.Embed); drawRel != nil {
 				if _, ok := supportedImageTypes[filepath.Ext(drawRel.Target)]; ok {
 					ret := filepath.Base(drawRel.Target)
 					cellObj, err := CoordinatesToCellName(anchor.From.Col+1, anchor.From.Row+1)
@@ -793,7 +698,24 @@ func (f *File) GetPictureMap(sheet string) (sheetPictureMaps map[string]SheetPic
 			}
 		}
 	}
-
+	err = nil
+	//获取图片
+	for _, deTwoCellAnchor := range deTwoCellAnchors {
+		if err = nil; deTwoCellAnchor.From != nil && deTwoCellAnchor.Pic != nil {
+			drawRel := f.getDrawingRelationships(drawingRelationships, deTwoCellAnchor.Pic.BlipFill.Blip.Embed)
+			if _, ok := supportedImageTypes[filepath.Ext(drawRel.Target)]; ok {
+				ret := filepath.Base(drawRel.Target)
+				cellObj, err := CoordinatesToCellName(deTwoCellAnchor.From.Col+1, deTwoCellAnchor.From.Row+1)
+				if err != nil {
+					return map[string]SheetPictures{}, err
+				}
+				sheetPictureMaps[cellObj] = SheetPictures{
+					FileName: ret,
+					Target:   strings.ReplaceAll(drawRel.Target, "..", "xl"),
+				}
+			}
+		}
+	}
 	return sheetPictureMaps, nil
 }
 
@@ -909,20 +831,6 @@ func (f *File) getDrawingRelationships(rels, rID string) *xlsxRelationship {
 		}
 	}
 	return nil
-}
-
-// 获取所有图片rid和存储位置的map
-func (f *File) getDrawingRelationshipsMap(rels string) map[string]*xlsxRelationship {
-	if drawingRels, _ := f.relsReader(rels); drawingRels != nil {
-		drawingRels.Lock()
-		defer drawingRels.Unlock()
-		m := make(map[string]*xlsxRelationship, len(drawingRels.Relationships))
-		for _, v := range drawingRels.Relationships {
-			m[v.ID] = &v
-		}
-		return m
-	}
-	return map[string]*xlsxRelationship{}
 }
 
 // drawingsWriter provides a function to save xl/drawings/drawing%d.xml after
