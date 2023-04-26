@@ -14,6 +14,7 @@ package excelize
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"image"
 	"io"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // parseGraphicOptions provides a function to parse the format settings of
@@ -717,7 +719,7 @@ func (f *File) GetPicture(sheet, cell string) (string, []byte, error) {
 //	}
 //	return sheetPictureMaps, nil
 //}
-func (f *File) GetPictureMap(sheet string) (sheetPictureMaps map[string]SheetPictures, err error) {
+func (f *File) GetPictureMap(sheet string, chanCount int) (sheetPictureMaps map[string]SheetPictures, err error) {
 	sheetPictureMaps = map[string]SheetPictures{}
 
 	var (
@@ -743,29 +745,53 @@ func (f *File) GetPictureMap(sheet string) (sheetPictureMaps map[string]SheetPic
 		Decode(deWsDr); err != nil && err != io.EOF {
 		return map[string]SheetPictures{}, err
 	}
-
+	var ch = make(chan int, chanCount)
+	var syncMap sync.Map
+	defer close(ch)
+	var sw = sync.WaitGroup{}
 	for _, anchor := range deWsDr.TwoCellAnchor {
-		deTwoCellAnchor := new(decodeTwoCellAnchor)
-		if err = f.xmlNewDecoder(strings.NewReader("<decodeTwoCellAnchor>" + anchor.Content + "</decodeTwoCellAnchor>")).
-			Decode(deTwoCellAnchor); err != nil && err != io.EOF {
-			return map[string]SheetPictures{}, err
-		}
-		if err = nil; deTwoCellAnchor.From != nil && deTwoCellAnchor.Pic != nil {
-			if drawRel, ok := drawRels[deTwoCellAnchor.Pic.BlipFill.Blip.Embed]; ok && drawRel != nil {
-				if _, ok := supportedImageTypes[filepath.Ext(drawRel.Target)]; ok {
-					ret := filepath.Base(drawRel.Target)
-					cellObj, err := CoordinatesToCellName(deTwoCellAnchor.From.Col+1, deTwoCellAnchor.From.Row+1)
-					if err != nil {
-						return map[string]SheetPictures{}, err
-					}
-					sheetPictureMaps[cellObj] = SheetPictures{
-						FileName: ret,
-						Target:   strings.ReplaceAll(drawRel.Target, "..", "xl"),
+		anchor := anchor
+		ch <- 1
+		sw.Add(1)
+		go func() {
+			defer func() {
+				sw.Done()
+				<-ch
+			}()
+			deTwoCellAnchor := new(decodeTwoCellAnchor)
+			if err = f.xmlNewDecoder(strings.NewReader("<decodeTwoCellAnchor>" + anchor.Content + "</decodeTwoCellAnchor>")).Decode(deTwoCellAnchor); err != nil && err != io.EOF {
+				//return map[string]SheetPictures{}, err
+				fmt.Println(fmt.Sprintf("%+v", err))
+				return
+			}
+			if err = nil; deTwoCellAnchor.From != nil && deTwoCellAnchor.Pic != nil {
+				if drawRel, ok := drawRels[deTwoCellAnchor.Pic.BlipFill.Blip.Embed]; ok && drawRel != nil {
+					if _, ok := supportedImageTypes[filepath.Ext(drawRel.Target)]; ok {
+						ret := filepath.Base(drawRel.Target)
+						cellObj, err := CoordinatesToCellName(deTwoCellAnchor.From.Col+1, deTwoCellAnchor.From.Row+1)
+						if err != nil {
+							fmt.Println(fmt.Sprintf("%+v", err))
+							//return map[string]SheetPictures{}, err
+							return
+						}
+						syncMap.Store(cellObj, SheetPictures{
+							FileName: ret,
+							Target:   strings.ReplaceAll(drawRel.Target, "..", "xl"),
+						})
+						/*sheetPictureMaps[cellObj] = SheetPictures{
+							FileName: ret,
+							Target:   strings.ReplaceAll(drawRel.Target, "..", "xl"),
+						}*/
 					}
 				}
 			}
-		}
+		}()
 	}
+	sw.Wait()
+	syncMap.Range(func(key, value interface{}) bool {
+		sheetPictureMaps[key.(string)] = value.(SheetPictures)
+		return true
+	})
 	if len(sheetPictureMaps) > 0 {
 		return sheetPictureMaps, nil
 	}
@@ -917,8 +943,8 @@ func (f *File) getDrawingRelationshipsMap(rels string) map[string]*xlsxRelations
 		drawingRels.Lock()
 		defer drawingRels.Unlock()
 		m := make(map[string]*xlsxRelationship, len(drawingRels.Relationships))
-		for _, v := range drawingRels.Relationships {
-			m[v.ID] = &v
+		for k, v := range drawingRels.Relationships {
+			m[v.ID] = &drawingRels.Relationships[k]
 		}
 		return m
 	}
